@@ -1,0 +1,17 @@
+{
+  "name": "final",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "slidev build --base /fyp-presentations/final/",
+    "dev": "slidev --open",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "^51.5.0",
+    "@slidev/theme-default": "latest",
+    "@slidev/theme-seriph": "latest",
+    "slidev-theme-neversink": "^0.3.6",
+    "vue": "^3.5.13"
+  }
+}

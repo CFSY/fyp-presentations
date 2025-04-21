@@ -1,0 +1,22 @@
+{
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "esno scripts/picker.ts dev --open"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.8.1",
+  "devDependencies": {
+    "@slidev/cli": "^51.5.0",
+    "@slidev/theme-default": "latest",
+    "esno": "^4.8.0",
+    "execa": "^9.5.2",
+    "prompts": "^2.4.2",
+    "vue": "^3.5.13"
+  },
+  "dependencies": {
+    "slidev-theme-neversink": "^0.3.6"
+  }
+}

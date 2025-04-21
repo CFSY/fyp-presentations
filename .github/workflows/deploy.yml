@@ -1,0 +1,137 @@
+name: Build and Deploy Presentations
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      presentations:
+        description: 'Space-separated list of presentations to build (leave blank for all)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      presentations: ${{ steps.set-output.outputs.presentations }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Determine presentations to build
+        id: presentations
+        run: |
+          PRESENTATIONS_TO_BUILD=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.presentations }}" ]; then
+            echo "Using manual input: ${{ github.event.inputs.presentations }}"
+            PRESENTATIONS_TO_BUILD="${{ github.event.inputs.presentations }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger with no input: build all
+            echo "Manual trigger with no input, building all presentations"
+            if [ -d "presentations" ]; then
+              PRESENTATIONS_TO_BUILD=$(ls presentations | xargs)
+            else
+              echo "Warning: 'presentations' directory not found."
+              PRESENTATIONS_TO_BUILD=""
+            fi
+          else
+            # On push: detect changed presentations
+            # Ensure 'before' SHA is not the zero SHA (initial push)
+            if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+              echo "Initial push or branch creation, checking all files in the commit."
+              # List all files in the current commit that are in presentations/
+              CHANGED_FILES=$(git diff --name-only ${{ github.sha }}~1 ${{ github.sha }} | grep '^presentations/' || true)
+            else
+              echo "Comparing ${{ github.event.before }}...${{ github.sha }}"
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^presentations/' || true)
+            fi
+
+            if [ -z "$CHANGED_FILES" ]; then
+              echo "No presentations changed, skipping build."
+              PRESENTATIONS_TO_BUILD=""
+            else
+              echo "Changed files in presentations/:"
+              echo "$CHANGED_FILES"
+              # Extract unique directory names
+              PRESENTATIONS_TO_BUILD=$(echo "$CHANGED_FILES" | awk -F/ '{print $2}' | sort -u | xargs)
+              echo "Changed presentations: $PRESENTATIONS_TO_BUILD"
+            fi
+          fi
+          echo "PRESENTATIONS=$PRESENTATIONS_TO_BUILD" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        if: env.PRESENTATIONS != '' && steps.presentations.outputs.presentations_dir_exists != 'false'
+        run: pnpm install
+        working-directory: ./
+
+      - name: Build presentations
+        if: env.PRESENTATIONS != ''
+        run: |
+          for pres in $PRESENTATIONS; do
+            if [ -d "presentations/$pres" ]; then
+              echo "Building $pres"
+              cd presentations/$pres
+              pnpm run build
+              cd ../..
+            else
+              echo "Warning: Directory presentations/$pres not found. Skipping build."
+            fi
+          done
+
+      - name: Prepare deployment folder
+        if: env.PRESENTATIONS != ''
+        run: |
+          mkdir -p deploy
+          for pres in $PRESENTATIONS; do
+            if [ -d "presentations/$pres/dist" ]; then
+              echo "Copying $pres/dist to deploy/$pres"
+              cp -r presentations/$pres/dist deploy/$pres
+            else
+              echo "Warning: Directory presentations/$pres/dist not found after build. Skipping copy."
+            fi
+          done
+          # Check if deploy directory is empty after attempting copies
+          if [ -z "$(ls -A deploy)" ]; then
+             echo "Deploy directory is empty, nothing to upload."
+             # Set PRESENTATIONS env var to empty so subsequent steps are skipped
+             echo "PRESENTATIONS=" >> $GITHUB_ENV
+          fi
+
+
+      - name: Upload Pages artifact
+        if: env.PRESENTATIONS != ''
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./deploy
+
+      - name: Set presentations output
+        id: set-output
+        run: echo "presentations=${{ env.PRESENTATIONS }}" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: build-and-deploy
+    if: needs.build-and-deploy.outputs.presentations != ''
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
